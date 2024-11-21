@@ -1,0 +1,1 @@
+savedcmd_/home/vvasa1/Project-5/OS-Porject-5/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/vvasa1/Project-5/OS-Porject-5/Module.symvers -T /home/vvasa1/Project-5/OS-Porject-5/modules.order -i Module.symvers -e 
