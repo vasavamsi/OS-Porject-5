@@ -10,7 +10,7 @@
 #include <asm/pgtable.h>
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Aakash Khepar");
+MODULE_AUTHOR("Vamsi Krishna Vasa");
 
 static int pid = 0;
 module_param(pid, int, 0);
