@@ -1,19 +1,21 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/sched.h>
 #include <linux/mm.h>
+#include <linux/sched.h>
 #include <linux/swap.h>
-#include <linux/fs.h>
 #include <linux/mm_types.h>
+#include <linux/pid.h>
+#include <asm/pgtable.h>
 
-static int pid = -1;
+static int pid = 0;
 static unsigned long long addr = 0;
 
-module_param(pid, int, 0644);
-MODULE_PARM_DESC(pid, "Process ID of the target process");
-module_param(addr, ullong, 0644);
-MODULE_PARM_DESC(addr, "Virtual memory address in the process space");
+module_param(pid, int, 0);
+module_param(addr, ullong, 0);
+
+MODULE_PARM_DESC(pid, "PID of the process");
+MODULE_PARM_DESC(addr, "Virtual address in the process");
 
 static int __init memory_manager_init(void) {
     struct task_struct *task;
@@ -23,69 +25,68 @@ static int __init memory_manager_init(void) {
     pud_t *pud;
     pmd_t *pmd;
     pte_t *pte;
-    unsigned long pfn;
-    unsigned long phys_addr;
-    swp_entry_t swap_entry;
-
-    if (pid < 0 || addr == 0) {
-        printk(KERN_ERR "[CSE330-Memory-Manager] Invalid parameters: PID and address must be non-negative.\n");
-        return -EINVAL;
-    }
-
-    task = pid_task(find_vpid(pid), PIDTYPE_PID);
+    
+    // Retrieve the task_struct for the given PID
+    task = pid_task(find_get_pid(pid), PIDTYPE_PID);
     if (!task) {
-        printk(KERN_ERR "[CSE330-Memory-Manager] PID [%d]: Process not found.\n", pid);
+        pr_err("[CSE330-Memory-Manager] PID [%d] does not exist\n", pid);
         return -ESRCH;
     }
 
     mm = task->mm;
     if (!mm) {
-        printk(KERN_ERR "[CSE330-Memory-Manager] PID [%d]: No memory descriptor available.\n", pid);
-        return -EFAULT;
+        pr_err("[CSE330-Memory-Manager] PID [%d] does not have a valid memory struct\n", pid);
+        return -EINVAL;
     }
 
+    // Walk through the page table levels
     pgd = pgd_offset(mm, addr);
-    if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd)))
-        goto invalid;
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) {
+        goto invalid_page;
+    }
 
     p4d = p4d_offset(pgd, addr);
-    if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d)))
-        goto invalid;
+    if (p4d_none(*p4d) || p4d_bad(*p4d)) {
+        goto invalid_page;
+    }
 
     pud = pud_offset(p4d, addr);
-    if (pud_none(*pud) || unlikely(pud_bad(*pud)))
-        goto invalid;
+    if (pud_none(*pud) || pud_bad(*pud)) {
+        goto invalid_page;
+    }
 
     pmd = pmd_offset(pud, addr);
-    if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd)))
-        goto invalid;
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) {
+        goto invalid_page;
+    }
 
     pte = pte_offset_kernel(pmd, addr);
-    if (!pte)
-        goto invalid;
+    if (!pte) {
+        goto invalid_page;
+    }
 
+    // Check if page is present in memory
     if (pte_present(*pte)) {
-        pfn = pte_pfn(*pte);
-        phys_addr = (pfn << PAGE_SHIFT) | (addr & ~PAGE_MASK);
-        printk(KERN_INFO "[CSE330-Memory-Manager] PID [%d]: virtual address [%llx] physical address [%lx] swap identifier [NA]\n",
-               pid, addr, phys_addr);
-    } else if (pte_none(*pte)) {
-        goto invalid;
+        unsigned long pfn = pte_pfn(*pte);
+        unsigned long phys_addr = (pfn << PAGE_SHIFT) | (addr & ~PAGE_MASK);
+        pr_info("[CSE330-Memory-Manager] PID [%d]: virtual address [%llx] physical address [%lx] swap identifier [NA]\n",
+                pid, addr, phys_addr);
     } else {
-        swap_entry = pte_to_swp_entry(*pte);
-        printk(KERN_INFO "[CSE330-Memory-Manager] PID [%d]: virtual address [%llx] physical address [NA] swap identifier [%lx]\n",
-               pid, addr, swap_entry.val);
+        // Page is in swap
+        swp_entry_t entry = pte_to_swp_entry(*pte);
+        pr_info("[CSE330-Memory-Manager] PID [%d]: virtual address [%llx] physical address [NA] swap identifier [%lx]\n",
+                pid, addr, entry.val);
     }
     return 0;
 
-invalid:
-    printk(KERN_INFO "[CSE330-Memory-Manager] PID [%d]: virtual address [%llx] physical address [NA] swap identifier [NA]\n",
-           pid, addr);
+invalid_page:
+    pr_info("[CSE330-Memory-Manager] PID [%d]: virtual address [%llx] physical address [NA] swap identifier [NA]\n",
+            pid, addr);
     return 0;
 }
 
 static void __exit memory_manager_exit(void) {
-    printk(KERN_INFO "[CSE330-Memory-Manager] Module unloaded.\n");
+    pr_info("[CSE330-Memory-Manager] Module unloaded\n");
 }
 
 module_init(memory_manager_init);
@@ -93,4 +94,4 @@ module_exit(memory_manager_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("CSE330 Project 5: Memory Management Kernel Module");
+MODULE_DESCRIPTION("Memory Manager Kernel Module for CSE330");
